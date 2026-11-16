@@ -9,8 +9,8 @@ RUN npm run build
 # ---- Stage 2: FastAPI serves the API + the built frontend on one URL ----
 FROM python:3.11-slim
 WORKDIR /app
-COPY dev/backend/requirements-prod.txt ./
-RUN pip install --no-cache-dir -r requirements-prod.txt
+COPY dev/backend/requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
 COPY dev/backend/ ./dev/backend/
 COPY --from=web /web/dist ./dev/frontend/dist
 ENV SERVE_FRONTEND=1
