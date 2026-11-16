@@ -2,7 +2,7 @@
 
 > Forecasting groundwater levels 7, 14 and 30 days ahead for 36 Maharashtra districts, and turning the forecasts into plain-language guidance for **farmers** and a priority view for **government officials**.
 
-🔗 **Live demo:** [YOUR-RENDER-URL-HERE](https://YOUR-RENDER-URL-HERE)
+🔗 **Live demo:** [jalvaani-t1le.onrender.com](https://jalvaani-t1le.onrender.com)
 
 ![JalVaani start page](docs/screenshots/01-start.png)
 
