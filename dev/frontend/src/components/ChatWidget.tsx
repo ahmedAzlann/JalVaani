@@ -1,0 +1,198 @@
+import { useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import { useApp } from "../context";
+import { api } from "../lib/api";
+import { toWav16k } from "../lib/wav";
+import { ArrowRight, MessageCircle, Mic, SendHorizontal, Sparkles, X } from "lucide-react";
+import type { ChatAction } from "../lib/types";
+
+interface Msg { role: "user" | "assistant"; content: string; actions?: ChatAction[] }
+
+/** The site guide: navigation help and explanations of what is on screen.
+ *  Works now in offline guide mode; uses Groq once GROQ_API_KEY is set on the backend (dev/docs/CHATBOT.md). */
+export default function ChatWidget() {
+  const { t, i18n } = useTranslation();
+  const { role, meta, highlight, startTour, visible } = useApp();
+  const nav = useNavigate();
+  const loc = useLocation();
+  const slug = loc.pathname.match(/^\/(?:farmer|gov\/district)\/([a-z_]+)/)?.[1] ?? null;
+  const [recording, setRecording] = useState(false);
+  const recorder = useRef<MediaRecorder | null>(null);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [text, setText] = useState("");
+  const [msgs, setMsgs] = useState<Msg[]>([]);
+  const [stage, setStage] = useState<"" | "thinking" | "understanding">("");
+  const [heard, setHeard] = useState<string | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight }); }, [msgs, open, stage]);
+  // a transcript from the microphone is sent at once (it shows as the user's message), using the freshest state
+  useEffect(() => {
+    if (heard !== null && !busy) { const m = heard; setHeard(null); void send(m); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [heard, busy]);
+
+  function run(actions: ChatAction[] | undefined) {
+    for (const a of actions ?? []) {
+      if (a.type === "highlight") { setOpen(false); highlight(a.element); }
+      if (a.type === "start_tour") { setOpen(false); setTimeout(() => startTour(a.tour), 300); }
+      // navigation is never automatic: the reply shows a "Go there" button (user stays in control)
+    }
+  }
+
+  async function send(message: string) {
+    if (!message.trim() || busy) return;
+    const history = msgs.map(({ role: r, content }) => ({ role: r, content }));
+    setMsgs((m) => [...m, { role: "user", content: message }]);
+    setText("");
+    setBusy(true);
+    setStage("thinking");
+    try {
+      const r = await api.chat({ message, lang: i18n.language, role: role ?? "farmer", page: loc.pathname,
+                                 district: slug, visible_context: visible, history });
+      setMsgs((m) => [...m, { role: "assistant", content: r.reply, actions: r.actions }]);
+      const navAction = r.actions.find((a) => a.type === "navigate");
+      if (!navAction || navAction.route === loc.pathname) run(r.actions);
+    } catch {
+      setMsgs((m) => [...m, { role: "assistant", content: t("chat.error") }]);
+    } finally {
+      setBusy(false);
+      setStage("");
+    }
+  }
+
+  /** Tap the mic and speak. Recording stops by itself about 1.2 s after you stop talking (or after 25 s, Gnani takes
+   *  up to 30 s; or after 7 s of silence), is converted to 16 kHz WAV and sent to /api/speech/stt (Gnani). The transcript
+   *  is sent to the guide straight away and appears as your message, so nothing is sent unseen. Tapping the mic again
+   *  stops it early. */
+  async function toggleMic() {
+    if (recording) { recorder.current?.stop(); return; }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const chunks: Blob[] = [];
+      const rec = new MediaRecorder(stream);
+      const ac = new AudioContext();
+      const analyser = ac.createAnalyser();
+      analyser.fftSize = 1024;
+      ac.createMediaStreamSource(stream).connect(analyser);
+      const buf = new Float32Array(analyser.fftSize);
+      const startedAt = performance.now();
+      let lastVoice = 0, spoke = false, floor = 0.004, n = 0;
+      // voice activity: loudness (RMS) clearly above the room's noise, measured over the first 0.4 s
+      const watch = setInterval(() => {
+        analyser.getFloatTimeDomainData(buf);
+        let sum = 0;
+        for (let k = 0; k < buf.length; k++) sum += buf[k] * buf[k];
+        const rms = Math.sqrt(sum / buf.length), now = performance.now();
+        if (now - startedAt < 400) { floor = Math.max(floor, rms); n++; return; }
+        if (rms > Math.max(0.015, floor * 2.5)) { spoke = true; lastVoice = now; }
+        if (spoke && now - lastVoice > 1200) rec.state === "recording" && rec.stop();
+        else if (!spoke && now - startedAt > 7000) rec.state === "recording" && rec.stop();
+      }, 100);
+      rec.ondataavailable = (e) => chunks.push(e.data);
+      rec.onstop = async () => {
+        clearInterval(watch); clearTimeout(limit);
+        stream.getTracks().forEach((tr) => tr.stop());
+        void ac.close();
+        setRecording(false);
+        if (!spoke) {
+          setMsgs((m) => [...m, { role: "assistant", content: t("chat.no_speech") }]);
+          return;
+        }
+        setBusy(true);
+        setStage("understanding");
+        let said = "";
+        try {
+          const fd = new FormData();
+          fd.append("audio", await toWav16k(new Blob(chunks, { type: rec.mimeType })), "speech.wav");
+          fd.append("lang", i18n.language);
+          const r = await fetch("/api/speech/stt", { method: "POST", body: fd });
+          if (r.ok) said = ((await r.json()).text ?? "").trim();
+          else setMsgs((m) => [...m, { role: "assistant", content: t("chat.error") }]);
+        } catch {
+          setMsgs((m) => [...m, { role: "assistant", content: t("chat.error") }]);
+        } finally {
+          setBusy(false);
+          setStage("");
+        }
+        if (said) setHeard(said);
+        else if (said === "") setMsgs((m) => (m[m.length - 1]?.content === t("chat.error") ? m : [...m, { role: "assistant", content: t("chat.no_speech") }]));
+      };
+      const limit = setTimeout(() => rec.state === "recording" && rec.stop(), 25000);
+      recorder.current = rec;
+      rec.start();
+      setRecording(true);
+    } catch {
+      setRecording(false);
+    }
+  }
+
+  const suggestions = role === "government"
+    ? ["g.priorities", "g.map", "g.needs", "g.tour"] : ["s.forecast", "s.reliability", "s.tour", "s.district"];
+
+  return (
+    <>
+      <button data-tour="chat-button" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-controls="chat-panel"
+        aria-label={open ? t("common.close") : t("chat.open")}
+        className="fixed bottom-5 right-5 z-50 inline-flex items-center gap-2 rounded-full bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white shadow-lg px-4 sm:px-5 min-h-[52px] min-w-[52px] text-[0.95rem] font-semibold transition-transform hover:-translate-y-0.5">
+        {open ? <X size={20} aria-hidden="true" /> : <MessageCircle size={20} aria-hidden="true" />}
+        <span className="sr-only sm:not-sr-only">{open ? t("common.close") : t("chat.open")}</span>
+      </button>
+      {open && (
+        <section id="chat-panel" role="dialog" aria-label={t("chat.title")}
+          className="fixed z-50 bottom-24 right-5 left-4 sm:left-auto sm:w-[400px] h-[72vh] max-h-[600px] tile shadow-2xl flex flex-col fade-in">
+          <header className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
+            <div className="flex items-center gap-2.5">
+              <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--accent-soft)] text-water" aria-hidden="true"><Sparkles size={16} /></span>
+              <div>
+              <h2 className="font-semibold leading-tight">{t("chat.title")}</h2>
+              <p className="text-xs text-muted">{meta?.features.chat === "groq" ? t("chat.mode_groq") : t("chat.mode_guide")}</p>
+              </div>
+            </div>
+            <button onClick={() => setOpen(false)} className="btn !border-transparent" aria-label={t("common.close")}><X size={18} aria-hidden="true" /></button>
+          </header>
+          <div ref={listRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-3" aria-live="polite">
+            <p className="text-ink2">{t("chat.hello")}</p>
+            {msgs.map((m, i) => (
+              <div key={i} className={m.role === "user" ? "text-right" : ""}>
+                <div className={`inline-block max-w-[90%] rounded-2xl px-3.5 py-2 text-left ${m.role === "user" ? "bg-[var(--accent)] text-white rounded-br-md" : "bg-[var(--surface-2)] rounded-bl-md"}`}>
+                  {m.content}
+                </div>
+                {m.actions?.filter((a) => a.type === "navigate").map((a, j) => (
+                  <div key={j}>
+                    <button className="btn mt-1.5 text-sm"
+                      onClick={() => { if (a.type === "navigate") nav(a.route); run(m.actions?.filter((x) => x.type !== "navigate")); }}>
+                      {t("chat.go")}<ArrowRight size={15} aria-hidden="true" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ))}
+            {recording && <p className="text-muted flex items-center gap-2"><span className="inline-block h-2 w-2 rounded-full bg-[var(--status-serious)] animate-pulse" aria-hidden="true" />{t("chat.listening")}</p>}
+            {busy && <p className="text-muted">{stage === "understanding" ? t("chat.understanding") : "…"}</p>}
+          </div>
+          <div className="px-4 pb-2 flex flex-wrap gap-2">
+            {suggestions.map((k) => (
+              <button key={k} onClick={() => send(t(`chat.${k}`))} className="chip !py-1.5 min-h-[36px] hover:bg-[var(--accent-soft)] transition-colors">
+                {t(`chat.${k}`)}
+              </button>
+            ))}
+          </div>
+          <form className="flex gap-2 p-3 border-t border-[var(--border)]" onSubmit={(e) => { e.preventDefault(); send(text); }}>
+            <label htmlFor="chat-input" className="sr-only">{t("chat.placeholder")}</label>
+            <input id="chat-input" value={text} onChange={(e) => setText(e.target.value)} placeholder={t("chat.placeholder")}
+              className="flex-1 rounded-xl border border-[var(--border)] bg-surface px-3 py-2 min-h-[44px]" maxLength={500} />
+            {meta?.features.speech && (meta.features.speech_languages ?? []).includes(i18n.language) && (
+              <button type="button" onClick={toggleMic} aria-pressed={recording}
+                className={`btn ${recording ? "!bg-[var(--status-serious)]" : ""}`}
+                aria-label={recording ? t("chat.listening") : t("chat.mic")} title={recording ? t("chat.listening") : t("chat.mic")}><Mic size={18} aria-hidden="true" /></button>
+            )}
+            <button type="submit" disabled={busy} className="btn btn-primary disabled:opacity-50" aria-label={t("chat.send")}><SendHorizontal size={18} aria-hidden="true" /></button>
+          </form>
+        </section>
+      )}
+    </>
+  );
+}

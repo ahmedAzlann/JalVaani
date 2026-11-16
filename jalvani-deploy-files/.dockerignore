@@ -1,0 +1,14 @@
+.git
+**/node_modules
+**/__pycache__
+**/.pytest_cache
+dev/backend/.env
+dev/backend/.cache
+dev/frontend/dist
+01_data_collection
+02_preprocessing
+03_models
+04_results
+archive
+docs
+data

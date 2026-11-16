@@ -1,0 +1,8 @@
+# Runtime-only dependencies for hosting (Render / Railway / Docker).
+# The data-build script (pandas, geopandas) and pytest are NOT needed here:
+# the dashboard data in dev/backend/data/ is pre-built and committed.
+fastapi>=0.111
+uvicorn>=0.30
+httpx>=0.27
+python-dotenv>=1.0
+python-multipart>=0.0.9

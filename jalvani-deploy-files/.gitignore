@@ -1,0 +1,109 @@
+# -----------------------------
+# OS generated files
+# -----------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# -----------------------------
+# Claude / AI tool folders
+# -----------------------------
+.claude/
+
+# -----------------------------
+# Datasets / large data
+# -----------------------------
+datasets/
+data/
+*.csv
+*.xlsx
+*.parquet
+*.h5
+*.pkl
+
+# -----------------------------
+# Logs
+# -----------------------------
+logs/
+log/
+*.log
+
+# -----------------------------
+# Environment variables / secrets
+# -----------------------------
+.env
+.env.*
+!.env.example
+
+# -----------------------------
+# Dependency folders
+# -----------------------------
+node_modules/
+
+# -----------------------------
+# Python
+# -----------------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Python tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# -----------------------------
+# Build files
+# -----------------------------
+dist/
+build/
+
+# -----------------------------
+# IDE / Editor
+# -----------------------------
+.vscode/
+.idea/
+*.iml
+
+# -----------------------------
+# Temporary files
+# -----------------------------
+tmp/
+temp/
+temp_data/
+*.tmp
+
+# -----------------------------
+# Database files
+# -----------------------------
+*.db
+*.sqlite3
+*.pt
+
+
+.ipynb_checkpoints/
+
+# -----------------------------
+# Results archives (too big for GitHub; the extracted copy lives in 04_results/tft_v4_1/)
+# -----------------------------
+04_results/zips/*.zip
+*.zip
+
+# generated speech clips (dev/backend/app/services/speech/gnani.py)
+dev/backend/.cache/
+
+# -----------------------------
+# Deployment: the pre-built dashboard data MUST be committed (Render has no raw data)
+# -----------------------------
+!dev/backend/data/
+!dev/backend/data/**
+!dev/frontend/package-lock.json
+# heavy backups, not needed on GitHub
+archive/

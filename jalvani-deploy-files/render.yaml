@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: jalvaani
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/meta
+    autoDeploy: true
+    envVars:
+      - key: SERVE_FRONTEND
+        value: "1"
+      # Optional: set these in the Render dashboard (never commit real keys)
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: qwen/qwen3.8-27b
+      - key: GNANI_API_KEY
+        sync: false
